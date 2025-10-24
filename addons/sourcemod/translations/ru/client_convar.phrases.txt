@@ -1,0 +1,19 @@
+"Phrases"
+{
+	"TAG"
+	{
+		"ru"            "<{green}Client Cvar{default}> "
+	}
+
+	"MOVE_TO_SPEC"
+	{
+		"#format"       "{1:N},{2:s},{3:.4f}"
+		"ru"            "{olive}{1}{default} был перемещён в наблюдатели за использование {green}{2} {3}"
+	}
+
+	"KICKED"
+	{
+		"#format"       "{1:N},{2:s},{3:.4f}"
+		"ru"            "{olive}{1}{default} был кикнут за использование {green}{2} {3}"
+	}
+}

@@ -1,0 +1,19 @@
+"Phrases"
+{
+	"TAG"
+	{
+		"en"            "<{green}Client Cvar{default}> "
+	}
+
+	"MOVE_TO_SPEC"
+	{
+		"#format"       "{1:N},{2:s},{3:.4f}"
+		"en"            "{olive}{1}{default} was moved to spectator for having {green}{2} {3}"
+	}
+
+	"KICKED"
+	{
+		"#format"       "{1:N},{2:s},{3:.4f}"
+		"en"            "{olive}{1}{default} was kicked for having {green}{2} {3}"
+	}
+}
