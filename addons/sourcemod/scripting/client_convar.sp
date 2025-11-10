@@ -9,7 +9,7 @@ public Plugin myinfo = {
     name        = "ClientConVar",
     author      = "ConfoglTeam, TouchMe",
     description = "The plugin allows you to check client ConVars",
-    version     = "build_0001",
+    version     = "build_0002",
     url         = "https://github.com/TouchMe-Inc/l4d2_client_convar"
 }
 
@@ -28,12 +28,6 @@ public Plugin myinfo = {
  * String length.
  */
 #define MAXLENGTH_CVAR_NAME     64
-
-/*
- * Timer.
- */
-#define TIMER_CHECK_INTERVAL_MIN 3.5
-#define TIMER_CHECK_INTERVAL_MAX 5.0
 
 
 enum
@@ -54,7 +48,11 @@ enum struct ConVarInfo
 
 ArrayList g_aClientConVars = null;
 
-Handle g_hClientSettingsCheckTimer = null;
+bool g_bCheckStarted = false;
+
+Handle g_hTimer[MAXPLAYERS + 1];
+
+int g_iIndex[MAXPLAYERS + 1];
 
 
 public void OnPluginStart()
@@ -67,11 +65,14 @@ public void OnPluginStart()
     RegServerCmd("sm_trackclientcvar", Cmd_TrackClientCvar, "Add a Client ConVar to be tracked and enforced");
     RegServerCmd("sm_resetclientcvars", Cmd_ResetTracking, "Remove all tracked client cvars");
     RegServerCmd("sm_startclientchecking", Cmd_StartClientChecking, "Start checking and enforcing client cvars tracked by this plugin");
+
+    g_bCheckStarted = false;
 }
 
 Action Cmd_TrackClientCvar(int iArgs)
 {
-    if (iArgs < 3 || iArgs == 4) {
+    if (iArgs < 3 || iArgs == 4)
+    {
         PrintToServer("Usage: sm_trackclientcvar <cvar> <hasMin> <min> [<hasMax> <max> [<action>]]");
 
         return Plugin_Handled;
@@ -123,9 +124,12 @@ Action Cmd_TrackClientCvar(int iArgs)
 
     ConVarInfo newEntry;
 
-    for (int i = 0; i < iSize; i++) {
+    for (int i = 0; i < iSize; i++)
+    {
         g_aClientConVars.GetArray(i, newEntry, sizeof(newEntry));
-        if (strcmp(newEntry.cvar, cvar, false) == 0) {
+
+        if (strcmp(newEntry.cvar, cvar, false) == 0)
+        {
             LogError("Attempt to track ConVar %s, which is already being tracked.", cvar);
             return Plugin_Handled;
         }
@@ -145,7 +149,7 @@ Action Cmd_TrackClientCvar(int iArgs)
 
 Action Cmd_ResetTracking(int iArgs)
 {
-    if (g_hClientSettingsCheckTimer != null) {
+    if (g_bCheckStarted) {
         return Plugin_Handled;
     }
 
@@ -158,47 +162,69 @@ Action Cmd_ResetTracking(int iArgs)
 
 Action Cmd_StartClientChecking(int iArgs)
 {
-    if (g_hClientSettingsCheckTimer == null) {
-        g_hClientSettingsCheckTimer = CreateTimer(GetRandomFloat(TIMER_CHECK_INTERVAL_MIN, TIMER_CHECK_INTERVAL_MAX), Timer_CheckClientSettings, .flags = TIMER_REPEAT);
-    } else {
-        PrintToServer("Can't start plugin tracking or tracking already started");
-    }
+    g_bCheckStarted = true;
 
     return Plugin_Handled;
 }
 
-Action Timer_CheckClientSettings(Handle hTimer)
+public void OnClientPostAdminCheck(int client)
 {
-    for (int iClient = 1; iClient <= MaxClients; iClient++)
-    {
-        if (IsClientInGame(iClient) && !IsFakeClient(iClient)) {
-            EnforceCliSettings(iClient);
-        }
+    if (!g_bCheckStarted) {
+        return;
     }
+
+    if (!IsFakeClient(client)) {
+        SetTimer(g_hTimer[client], CreateTimer(0.1, Timer_QueryNextCvar, client, TIMER_REPEAT));
+    }
+}
+
+public void OnClientDisconnect(int iClient)
+{
+    if (!g_bCheckStarted) {
+        return;
+    }
+
+    if (!IsFakeClient(iClient))
+    {
+        g_iIndex[iClient] = 0;
+        SetTimer(g_hTimer[iClient], INVALID_HANDLE);
+    }
+}
+
+Action Timer_QueryNextCvar(Handle hTimer, int iClient)
+{
+    if (g_aClientConVars.Length == 0) {
+        return Plugin_Continue;
+    }
+
+    if (g_iIndex[iClient] >= g_aClientConVars.Length) {
+        g_iIndex[iClient] = 0;
+    }
+
+    ConVarInfo cvi;
+    g_aClientConVars.GetArray(g_iIndex[iClient], cvi, sizeof(cvi));
+
+    if (QueryClientConVar(iClient, cvi.cvar, QueryReply_EnforceCliSettings, (GetClientSerial(iClient) << 16) | g_iIndex[iClient]) == QUERYCOOKIE_FAILED) {
+        return Plugin_Continue;
+    }
+
+    g_iIndex[iClient]++;
 
     return Plugin_Continue;
 }
 
-void EnforceCliSettings(int iClient)
-{
-    int iSize = g_aClientConVars.Length;
-
-    ConVarInfo cvi;
-    for (int i = 0; i < iSize; i++) {
-        g_aClientConVars.GetArray(i, cvi, sizeof(cvi));
-
-        QueryClientConVar(iClient, cvi.cvar, QueryReply_EnforceCliSettings, i);
-    }
-}
-
 void QueryReply_EnforceCliSettings(QueryCookie cookie, int iClient, ConVarQueryResult result, \
-                                                const char[] szCvarName, const char[] cvarValue, int cvi_index)
+                                                const char[] szCvarName, const char[] cvarValue, int data)
 {
-    if (!IsClientConnected(iClient) || !IsClientInGame(iClient) || IsClientInKickQueue(iClient)) {
+    int iIndex  = data & 0xFFFF;
+    int iSerial = data >> 16;
+
+    if (GetClientFromSerial(iSerial) != iClient) {
         return;
     }
 
-    if (result) {
+    if (result)
+    {
         LogMessage("Couldn't retrieve cvar %s from %L, kicked from server", szCvarName, iClient);
         KickClient(iClient, "ConVar '%s' protected or missing!", szCvarName);
         return;
@@ -206,9 +232,8 @@ void QueryReply_EnforceCliSettings(QueryCookie cookie, int iClient, ConVarQueryR
 
     float fCvarVal = StringToFloat(cvarValue);
 
-
     ConVarInfo cvi;
-    g_aClientConVars.GetArray(cvi_index, cvi, sizeof(cvi));
+    g_aClientConVars.GetArray(iIndex, cvi, sizeof cvi);
 
     if ((cvi.hasMin && fCvarVal < cvi.min) || (cvi.hasMax && fCvarVal > cvi.max))
     {
@@ -251,5 +276,16 @@ void QueryReply_EnforceCliSettings(QueryCookie cookie, int iClient, ConVarQueryR
                 ChangeClientTeam(iClient, TEAM_SPECTATOR);
             }
         }
+    }
+}
+
+void SetTimer(Handle &hTimer, Handle hNewTimer = INVALID_HANDLE)
+{
+    Handle hTemp = hTimer;
+    hTimer = hNewTimer;
+
+    if (hTemp != INVALID_HANDLE)
+    {
+        CloseHandle(hTemp);
     }
 }
