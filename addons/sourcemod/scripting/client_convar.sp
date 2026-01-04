@@ -167,14 +167,14 @@ Action Cmd_StartClientChecking(int iArgs)
     return Plugin_Handled;
 }
 
-public void OnClientPostAdminCheck(int client)
+public void OnClientPostAdminCheck(int iClient)
 {
     if (!g_bCheckStarted) {
         return;
     }
 
-    if (!IsFakeClient(client)) {
-        SetTimer(g_hTimer[client], CreateTimer(0.1, Timer_QueryNextCvar, client, TIMER_REPEAT));
+    if (!IsFakeClient(iClient)) {
+        SetTimer(g_hTimer[iClient], CreateTimer(1.0, Timer_CheckCvars, GetClientUserId(iClient)));
     }
 }
 
@@ -191,14 +191,37 @@ public void OnClientDisconnect(int iClient)
     }
 }
 
-Action Timer_QueryNextCvar(Handle hTimer, int iClient)
+Action Timer_CheckCvars(Handle hTimer, int iUserId)
 {
-    if (g_aClientConVars.Length == 0) {
-        return Plugin_Continue;
+    int iClient = GetClientOfUserId(iUserId);
+
+    if (iClient <= 0) {
+        return Plugin_Stop;
     }
 
-    if (g_iIndex[iClient] >= g_aClientConVars.Length) {
-        g_iIndex[iClient] = 0;
+    g_iIndex[iClient] = 0;
+    SetTimer(g_hTimer[iClient], CreateTimer(GetRandomFloat(0.1, 0.5), Timer_QueryNextCvar, iUserId, TIMER_REPEAT));
+
+    return Plugin_Stop;
+}
+
+Action Timer_QueryNextCvar(Handle hTimer, int iUserId)
+{
+    if (g_aClientConVars.Length == 0) {
+        return Plugin_Stop;
+    }
+
+    int iClient = GetClientOfUserId(iUserId);
+
+    if (iClient <= 0) {
+        return Plugin_Stop;
+    }
+
+    if (g_iIndex[iClient] >= g_aClientConVars.Length)
+    {
+        SetTimer(g_hTimer[iClient], CreateTimer(GetRandomFloat(10.0, 60.0), Timer_CheckCvars, iUserId));
+
+        return Plugin_Stop;
     }
 
     ConVarInfo cvi;
@@ -281,11 +304,12 @@ void QueryReply_EnforceCliSettings(QueryCookie cookie, int iClient, ConVarQueryR
 
 void SetTimer(Handle &hTimer, Handle hNewTimer = INVALID_HANDLE)
 {
-    Handle hTemp = hTimer;
-    hTimer = hNewTimer;
-
-    if (hTemp != INVALID_HANDLE)
+    if (hTimer != INVALID_HANDLE)
     {
-        CloseHandle(hTemp);
+        KillTimer(hTimer);
+        hTimer = INVALID_HANDLE;
     }
+
+    hTimer = hNewTimer;
 }
+
