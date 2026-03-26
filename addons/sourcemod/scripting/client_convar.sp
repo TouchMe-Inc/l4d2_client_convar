@@ -207,14 +207,14 @@ Action Timer_CheckCvars(Handle hTimer, int iUserId)
 
 Action Timer_QueryNextCvar(Handle hTimer, int iUserId)
 {
-    if (g_aClientConVars.Length == 0) {
-        return Plugin_Stop;
-    }
-
     int iClient = GetClientOfUserId(iUserId);
 
     if (iClient <= 0) {
         return Plugin_Stop;
+    }
+
+    if (GetClientTeam(iClient) == TEAM_SPECTATOR) {
+        return Plugin_Continue;
     }
 
     if (g_iIndex[iClient] >= g_aClientConVars.Length)
